@@ -50,20 +50,11 @@ python -m venv venv
 venv\Scripts\activate
 ```
 
-> ⚠️ On first use: you may need to run this in **PowerShell** with execution enabled:  
-> ```powershell
-> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
-> ```
-
 #### 3. Install Dependencies
 ```bash
 pip install streamlit anthropic python-dotenv
 ```
 
-> Optionally save them for others:
-```bash
-pip freeze > requirements.txt
-```
 
 #### 4. Create `.env` File
 In your root folder, add a new file called `.env`:
