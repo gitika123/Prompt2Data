@@ -105,30 +105,7 @@ It will open a browser window at:
 
 Each message updates your task spec!
 
----
 
-## 📌 Roadmap
-
-- [x] Intent Agent (Claude-powered)
-- [ ] Dataset Search Agent
-- [ ] Schema Alignment Agent
-- [ ] Cleaning & Feature Engineering Agent
-- [ ] Model Validation Agent
-- [ ] Dataset Export + Report PDF
-
----
-
-## 🏆 Hackathon Info
-
-Built for **UC Berkeley AI Hackathon 2025**  
-Track: *Productivity & Dev Tools*  
-Sponsors used: **Anthropic Claude 4**
-
----
-
-## 📄 License
-
-MIT — free to use, fork, and remix.
 
 ---
 
