@@ -23,20 +23,18 @@ if "final_csv" not in st.session_state:
     st.session_state.final_csv = ""
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "hf_results" not in st.session_state:
-    st.session_state.hf_results = []
 
 for entry in st.session_state.chat_history:
     with st.chat_message(entry["role"]):
         st.markdown(entry["content"])
 
-user_input = st.chat_input("Describe the dataset you want:")
+user_input = st.chat_input("What dataset do you want to create?")
 if user_input and st.session_state.step == 0:
     st.session_state.chat_history.append({"role": "user", "content": user_input})
     st.chat_message("user").markdown(user_input)
 
     with st.chat_message("assistant"):
-        st.markdown("🧠 Let me understand what data you need...")
+        st.markdown("🧠 Understanding your request...")
         response = get_intent_from_prompt(user_input, {})
         try:
             parsed = response if isinstance(response, dict) else json.loads(response)
@@ -53,42 +51,32 @@ if user_input and st.session_state.step == 0:
             st.code(str(response))
             st.stop()
 
-# Step 1: Hugging Face Dataset Agent
+# Step 1: Hugging Face search
 if st.session_state.step == 1:
     with st.chat_message("assistant"):
         st.markdown("🔍 Searching Hugging Face for relevant datasets...")
         hf = HuggingFaceDatasetSearchAgent()
-        results = hf.search_datasets(st.session_state.task_spec)
-        st.session_state.hf_results = results
-
-        if results:
-            for ds in results:
-                st.markdown(
-                    f"**{ds.id}** — [View Dataset]({ds.url})  "
-                    f"{ds.description if ds.description else 'No description available.'}"
-                )
-            preview_path = hf.download_first_preview_csv(st.session_state.task_spec)
-            if preview_path:
-                st.session_state.final_csv = preview_path
-                st.session_state.step = 3
-                st.session_state.chat_history.append({
-                    "role": "assistant",
-                    "content": "✅ Found and downloaded a dataset preview from Hugging Face."
-                })
-                st.rerun()
-            else:
-                st.warning("⚠️ Could not load a usable preview. Showing results but proceeding to scraping.")
-                st.session_state.step = 2
-                st.rerun()
+        path = hf.download_best_dataset_csv(st.session_state.task_spec)
+        if path:
+            st.session_state.final_csv = path
+            st.session_state.step = 3
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": "✅ Found a dataset on Hugging Face and downloaded preview CSV."
+            })
+            st.rerun()
         else:
-            st.warning("❌ No datasets found. Proceeding to scraping.")
             st.session_state.step = 2
+            st.session_state.chat_history.append({
+                "role": "assistant",
+                "content": "⚠️ No good match on Hugging Face. Falling back to scraping..."
+            })
             st.rerun()
 
-# Step 2: Smart Web Scraper fallback
+# Step 2: Smart Scraper fallback
 if st.session_state.step == 2:
     with st.chat_message("assistant"):
-        st.markdown("🌐 Scraping public sources for tabular data...")
+        st.markdown("🌐 Scraping public data sources or using AI fallback...")
         scraper = SmartScraperAgent()
         result = scraper.scrape_from_intent(st.session_state.task_spec)
 
@@ -97,23 +85,23 @@ if st.session_state.step == 2:
             st.session_state.step = 3
             st.session_state.chat_history.append({
                 "role": "assistant",
-                "content": "✅ Scraped structured data from the web and saved to CSV. Cleaning next..."
+                "content": f"✅ Scraped/extracted data from: {result['source_url']}"
             })
             st.rerun()
         else:
-            st.error("❌ No structured data found via scraping.")
+            st.error("❌ Scraping failed. No data could be extracted.")
             st.stop()
 
-# Step 3: Data Cleaning Agent
+# Step 3: Cleaning and output
 if st.session_state.step == 3:
     with st.chat_message("assistant"):
         path = st.session_state.final_csv
         if not os.path.exists(path):
-            st.error("Final CSV not found.")
+            st.error("📂 File not found.")
             st.stop()
 
         df = pd.read_csv(path)
-        st.markdown("📄 Raw Scraped Data Preview:")
+        st.markdown("📄 Raw Data Preview:")
         st.dataframe(df.head())
 
         cleaner = DataCleaningAgent()
