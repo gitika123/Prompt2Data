@@ -1,0 +1,10 @@
+anthropic
+huggingface_hub
+datasets
+python-dotenv
+requests
+rapidfuzz
+beautifulsoup4
+duckduckgo-search
+streamlit
+pandas
