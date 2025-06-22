@@ -8,3 +8,4 @@ beautifulsoup4
 duckduckgo-search
 streamlit
 pandas
+groq
