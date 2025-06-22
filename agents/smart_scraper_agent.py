@@ -1,105 +1,101 @@
 
+import os
 import requests
+import pandas as pd
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
-import pandas as pd
-from urllib.parse import urljoin
-import os
-import re
-from typing import List, Dict
+from urllib.parse import urlparse
+from io import StringIO
 
 class SmartScraperAgent:
-    def __init__(self, output_dir="outputs", min_score=3):
-        self.headers = {"User-Agent": "Mozilla/5.0"}
-        os.makedirs(output_dir, exist_ok=True)
+    def __init__(self, output_dir="outputs"):
         self.output_dir = output_dir
-        self.min_score = min_score
+        os.makedirs(output_dir, exist_ok=True)
 
-    def search_site(self, query: str, max_results=10) -> List[str]:
-        with DDGS() as ddgs:
-            return [res["href"] for res in ddgs.text(query, max_results=max_results) if res.get("href", "").startswith("http")]
+    def search_relevant_urls(self, query, max_results=5):
+        urls = []
+        try:
+            with DDGS() as ddgs:
+                for r in ddgs.text(query, max_results=max_results):
+                    if r["href"].startswith("http"):
+                        urls.append(r["href"])
+        except Exception as e:
+            print(f"❌ DuckDuckGo failed: {e}")
+        return urls
 
-    def extract_tables(self, soup) -> List[pd.DataFrame]:
-        tables = soup.find_all("table")
-        dataframes = []
-        for table in tables:
-            rows = table.find_all("tr")
-            content = [[cell.get_text(strip=True) for cell in row.find_all(["th", "td"])] for row in rows]
-            if len(content) > 1 and len(content[0]) > 1:
-                try:
-                    df = pd.DataFrame(content[1:], columns=content[0])
-                    if df.shape[1] >= 2 and df.shape[0] >= 3:
-                        dataframes.append(df)
-                except:
-                    continue
-        return dataframes
+    def extract_tables_and_lists(self, html):
+        soup = BeautifulSoup(html, "html.parser")
+        # Try HTML tables
+        try:
+            tables = pd.read_html(html)
+            for table in tables:
+                if not table.empty:
+                    return table, "table"
+        except:
+            pass
+        # Try structured list
+        items = soup.find_all("li")
+        rows = [li.get_text(strip=True) for li in items if len(li.get_text(strip=True).split()) > 3]
+        if rows:
+            return pd.DataFrame(rows, columns=["Extracted Info"]), "list"
+        return None, None
 
-    def extract_csv_links(self, soup, base_url: str) -> List[str]:
-        links = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if ".csv" in href.lower() or ".json" in href.lower() or ".xlsx" in href.lower():
-                full_url = urljoin(base_url, href)
-                links.append(full_url)
-        return links
+    def extract_with_llm_fallback(self, html, query):
+        from openai import OpenAI
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            return None
+        from openai import OpenAI
+        client = OpenAI(api_key=openai_key)
+        try:
+            soup = BeautifulSoup(html, "html.parser")
+            raw_text = soup.get_text(separator="\n")[:3500]
+            prompt = f"Extract structured tabular data related to: '{query}' from the following webpage content. Respond only in CSV format.\n\n{raw_text}"
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            csv_raw = response.choices[0].message.content
+            df = pd.read_csv(StringIO(csv_raw))
+            return df
+        except Exception as e:
+            print(f"❌ LLM fallback failed: {e}")
+        return None
 
-    def save_single_csv(self, df: pd.DataFrame, task_name: str) -> str:
-        filename = re.sub(r"[^a-zA-Z0-9]", "_", task_name.lower()) + "_final.csv"
-        path = os.path.join(self.output_dir, filename)
-        df.to_csv(path, index=False)
-        return path
-
-    def merge_or_select_table(self, tables: List[pd.DataFrame], query: str) -> pd.DataFrame:
-        if len(tables) == 1:
-            return tables[0]
-
-        base_cols = set(tables[0].columns)
-        all_same = all(set(df.columns) == base_cols for df in tables)
-
-        if all_same:
-            return pd.concat(tables, ignore_index=True)
-
-        def score(df):
-            score = len(df.columns) * len(df)
-            headers = " ".join(df.columns).lower()
-            if any(kw in headers for kw in query.lower().split()):
-                score += 50
-            return score
-
-        best_df = max(tables, key=score)
-        return best_df
-
-    def scrape_from_intent(self, task_spec, max_pages=10) -> Dict[str, object]:
-        query = task_spec.get("goal", "public data")
-        results = self.search_site(query, max_results=max_pages)
-
-        for url in results:
+    def scrape_from_intent(self, task_spec):
+        query = task_spec.get("goal", "")
+        urls = self.search_relevant_urls(query, max_results=7)
+        for url in urls:
             try:
-                res = requests.get(url, headers=self.headers, timeout=10)
-                soup = BeautifulSoup(res.text, "html.parser")
-
-                tables = self.extract_tables(soup)
-                csv_links = self.extract_csv_links(soup, url)
-
-                score = len(tables) * 3 + len(csv_links) * 2
-                if score >= self.min_score and tables:
-                    merged_table = self.merge_or_select_table(tables, query)
-                    csv_path = self.save_single_csv(merged_table, query)
-
+                res = requests.get(url, timeout=10)
+                html = res.text
+                df, mode = self.extract_tables_and_lists(html)
+                if df is not None:
+                    fname = f"{urlparse(url).netloc.replace('.', '_')}_{mode}.csv"
+                    fpath = os.path.join(self.output_dir, fname)
+                    df.to_csv(fpath, index=False)
                     return {
                         "source_url": url,
-                        "table": merged_table,
-                        "csv_path": csv_path,
-                        "csv_links": csv_links
+                        "source_type": mode,
+                        "table": df,
+                        "csv_path": fpath
                     }
-
+                # Try LLM fallback
+                df_llm = self.extract_with_llm_fallback(html, query)
+                if df_llm is not None and not df_llm.empty:
+                    fname = f"{urlparse(url).netloc.replace('.', '_')}_llm.csv"
+                    fpath = os.path.join(self.output_dir, fname)
+                    df_llm.to_csv(fpath, index=False)
+                    return {
+                        "source_url": url,
+                        "source_type": "llm",
+                        "table": df_llm,
+                        "csv_path": fpath
+                    }
             except Exception as e:
-                print(f"❌ Failed to scrape {url}: {e}")
+                print(f"⚠️ Failed to scrape {url}: {e}")
                 continue
-
-        return {
-            "source_url": "",
-            "table": None,
-            "csv_path": "",
-            "csv_links": []
-        }
+        return {"source_url": None, "source_type": None, "csv_path": None, "table": None}
