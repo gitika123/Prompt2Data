@@ -3,6 +3,8 @@
 
 **Prompt2Data** is a conversational AI tool that turns natural language prompts into structured data specifications. It helps automate dataset generation by capturing goals, schema, and metadata — starting with an intelligent prompt interpreter powered by Claude 4.
 
+Devpost Link - https://devpost.com/software/prompt2data-autonomous-data-pipeline?ref_content=my-projects-tab&ref_feature=my_projects
+
 > Think of it as ChatGPT for dataset design and pipeline automation.
 
 ---
